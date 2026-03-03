@@ -134,6 +134,7 @@ async function run() {
   let prepareError: string | undefined;
   let context: GitHubContext | undefined;
   let octokit: Octokits | undefined;
+  let githubTokenSource = process.env.CLAUDE_CODE_GITHUB_TOKEN_SOURCE;
   // Track whether we've completed prepare phase, so we can attribute errors correctly
   let prepareCompleted = false;
   try {
@@ -147,6 +148,7 @@ async function run() {
 
     try {
       githubToken = await setupGitHubToken();
+      githubTokenSource = process.env.CLAUDE_CODE_GITHUB_TOKEN_SOURCE;
     } catch (error) {
       if (error instanceof WorkflowValidationSkipError) {
         core.setOutput("skipped_due_to_workflow_validation_mismatch", "true");
@@ -307,6 +309,7 @@ async function run() {
     // Set remaining action-level outputs
     core.setOutput("branch_name", claudeBranch);
     core.setOutput("github_token", githubToken);
+    core.setOutput("github_token_source", githubTokenSource || "");
   }
 }
 

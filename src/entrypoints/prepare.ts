@@ -31,6 +31,8 @@ async function run() {
 
     // Setup GitHub token
     const githubToken = await setupGitHubToken();
+    const githubTokenSource =
+      process.env.CLAUDE_CODE_GITHUB_TOKEN_SOURCE || "";
     const octokit = createOctokit(githubToken);
 
     // Step 3: Check write permissions (only for entity contexts)
@@ -68,6 +70,7 @@ async function run() {
       console.log("No trigger found, skipping remaining steps");
       // Still set github_token output even when skipping
       core.setOutput("github_token", githubToken);
+      core.setOutput("github_token_source", githubTokenSource);
       return;
     }
 
@@ -85,6 +88,7 @@ async function run() {
 
     // Expose the GitHub token (Claude App token) as an output
     core.setOutput("github_token", githubToken);
+    core.setOutput("github_token_source", githubTokenSource);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     core.setFailed(`Prepare step failed with error: ${errorMessage}`);

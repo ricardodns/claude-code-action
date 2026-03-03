@@ -4,6 +4,8 @@
 
 A general-purpose [Claude Code](https://claude.ai/code) action for GitHub PRs and issues that can answer questions and implement code changes. This action intelligently detects when to activate based on your workflow context—whether responding to @claude mentions, issue assignments, or executing automation tasks with explicit prompts. It supports multiple authentication methods including Anthropic direct API, Amazon Bedrock, Google Vertex AI, and Microsoft Foundry.
 
+It can also run on Gitea Actions when GitHub-compatible environment variables are available. For self-hosted Gitea instances, set `GITHUB_SERVER_URL`/`GITHUB_API_URL` (or `GITEA_SERVER_URL`/`GITEA_API_URL`) and provide a workflow token via `${{ github.token }}` or `github_token`.
+
 ## Features
 
 - 🎯 **Intelligent Mode Detection**: Automatically selects the appropriate execution mode based on your workflow context—no configuration needed

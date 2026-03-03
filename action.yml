@@ -64,6 +64,9 @@ inputs:
   github_token:
     description: "GitHub token with repo and pull request permissions (optional if using GitHub App)"
     required: false
+  gitea_token:
+    description: "Alias of github_token for Gitea workflows"
+    required: false
   use_bedrock:
     description: "Use Amazon Bedrock with OIDC authentication instead of direct Anthropic API"
     required: false
@@ -148,6 +151,9 @@ outputs:
   github_token:
     description: "The GitHub token used by the action (Claude App token if available)"
     value: ${{ steps.run.outputs.github_token }}
+  github_token_source:
+    description: "Token source used by the action: override, workflow, or app"
+    value: ${{ steps.run.outputs.github_token_source }}
   structured_output:
     description: "JSON string containing all structured output fields when --json-schema is provided in claude_args. Use fromJSON() to parse: fromJSON(steps.id.outputs.structured_output).field_name"
     value: ${{ steps.run.outputs.structured_output }}
@@ -197,7 +203,7 @@ runs:
         BASE_BRANCH: ${{ inputs.base_branch }}
         BRANCH_PREFIX: ${{ inputs.branch_prefix }}
         BRANCH_NAME_TEMPLATE: ${{ inputs.branch_name_template }}
-        OVERRIDE_GITHUB_TOKEN: ${{ inputs.github_token }}
+        OVERRIDE_GITHUB_TOKEN: ${{ inputs.github_token || inputs.gitea_token }}
         ALLOWED_BOTS: ${{ inputs.allowed_bots }}
         ALLOWED_NON_WRITE_USERS: ${{ inputs.allowed_non_write_users }}
         INCLUDE_COMMENTS_BY_ACTOR: ${{ inputs.include_comments_by_actor }}
@@ -283,7 +289,7 @@ runs:
         bun run ${GITHUB_ACTION_PATH}/src/entrypoints/cleanup-ssh-signing.ts
 
     - name: Revoke app token
-      if: always() && inputs.github_token == '' && steps.run.outputs.skipped_due_to_workflow_validation_mismatch != 'true'
+      if: always() && steps.run.outputs.github_token_source == 'app' && steps.run.outputs.skipped_due_to_workflow_validation_mismatch != 'true'
       shell: bash
       run: |
         curl -L \

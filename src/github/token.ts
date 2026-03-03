@@ -10,6 +10,12 @@ export class WorkflowValidationSkipError extends Error {
   }
 }
 
+type TokenSource = "override" | "workflow" | "app";
+
+function setTokenSource(source: TokenSource): void {
+  process.env.CLAUDE_CODE_GITHUB_TOKEN_SOURCE = source;
+}
+
 async function getOidcToken(): Promise<string> {
   try {
     const oidcToken = await core.getIDToken("claude-code-github-action");
@@ -131,7 +137,21 @@ export async function setupGitHubToken(): Promise<string> {
 
   if (providedToken) {
     console.log("Using provided GITHUB_TOKEN for authentication");
+    setTokenSource("override");
     return providedToken;
+  }
+
+  // Prefer workflow-scoped token when available (works for GitHub Actions
+  // and Gitea Actions) to avoid requiring GitHub App/OIDC.
+  const workflowToken =
+    process.env.DEFAULT_WORKFLOW_TOKEN ||
+    process.env.GITHUB_TOKEN ||
+    process.env.GH_TOKEN;
+
+  if (workflowToken) {
+    console.log("Using workflow token for authentication");
+    setTokenSource("workflow");
+    return workflowToken;
   }
 
   console.log("Requesting OIDC token...");
@@ -147,5 +167,6 @@ export async function setupGitHubToken(): Promise<string> {
   console.log("App token successfully obtained");
 
   console.log("Using GITHUB_TOKEN from OIDC");
+  setTokenSource("app");
   return appToken;
 }
