@@ -65,6 +65,7 @@ export function detectMode(context: GitHubContext): AutoDetectedMode {
     const supportedActions = [
       "opened",
       "synchronize",
+      "synchronized",
       "ready_for_review",
       "reopened",
     ];
@@ -101,6 +102,7 @@ function validateTrackProgressEvent(context: GitHubContext): void {
     const validActions = [
       "opened",
       "synchronize",
+      "synchronized",
       "ready_for_review",
       "reopened",
     ];
