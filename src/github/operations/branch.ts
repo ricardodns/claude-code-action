@@ -153,8 +153,13 @@ export async function setupBranch(
 
       const branchName = prData.headRefName;
 
-      // Determine optimal fetch depth based on PR commit count, with a minimum of 20
-      const commitCount = prData.commits.totalCount;
+      // Determine optimal fetch depth based on PR commit count, with a minimum of 20.
+      // Some providers may omit commit count in API responses.
+      const rawCommitCount = prData.commits?.totalCount;
+      const commitCount =
+        typeof rawCommitCount === "number" && Number.isFinite(rawCommitCount)
+          ? rawCommitCount
+          : 20;
       const fetchDepth = Math.max(commitCount, 20);
 
       console.log(

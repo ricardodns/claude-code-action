@@ -655,7 +655,10 @@ async function fetchPullRequestDataViaRest({
       })),
     },
     commits: {
-      totalCount: pr.commits,
+      totalCount:
+        typeof pr.commits === "number" && Number.isFinite(pr.commits)
+          ? pr.commits
+          : 1,
       nodes: [],
     },
     files: { nodes: changedFiles },
