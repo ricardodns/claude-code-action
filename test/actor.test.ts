@@ -17,6 +17,18 @@ function createMockOctokit(userType: string): Octokit {
   } as unknown as Octokit;
 }
 
+function createMockOctokitWithRawType(userType: string | undefined): Octokit {
+  return {
+    users: {
+      getByUsername: async () => ({
+        data: {
+          type: userType,
+        },
+      }),
+    },
+  } as unknown as Octokit;
+}
+
 describe("checkHumanActor", () => {
   test("should pass for human actor", async () => {
     const mockOctokit = createMockOctokit("User");
@@ -92,5 +104,15 @@ describe("checkHumanActor", () => {
     await expect(checkHumanActor(mockOctokit, context)).rejects.toThrow(
       "Workflow initiated by non-human actor: other-bot (type: Bot). Add bot to allowed_bots list or use '*' to allow all bots.",
     );
+  });
+
+  test("should pass when actor type is undefined (Gitea-compatible)", async () => {
+    const mockOctokit = createMockOctokitWithRawType(undefined);
+    const context = createMockContext();
+    context.actor = "human-user";
+
+    await expect(
+      checkHumanActor(mockOctokit, context),
+    ).resolves.toBeUndefined();
   });
 });

@@ -18,11 +18,16 @@ export async function checkHumanActor(
   });
 
   const actorType = userData.type;
+  const normalizedType = (actorType || "").toLowerCase();
+  const isExplicitBot =
+    normalizedType === "bot" ||
+    githubContext.actor.toLowerCase().endsWith("[bot]");
+  const isExplicitHuman = normalizedType === "user";
 
   console.log(`Actor type: ${actorType}`);
 
-  // Check bot permissions if actor is not a User
-  if (actorType !== "User") {
+  // Check bot permissions when actor is explicitly a bot.
+  if (isExplicitBot) {
     const allowedBots = githubContext.inputs.allowedBots;
 
     // Check if all bots are allowed
@@ -57,6 +62,13 @@ export async function checkHumanActor(
     // Bot not allowed
     throw new Error(
       `Workflow initiated by non-human actor: ${botName} (type: ${actorType}). Add bot to allowed_bots list or use '*' to allow all bots.`,
+    );
+  }
+
+  // Some providers (e.g. Gitea) may not populate actor type consistently.
+  if (!isExplicitHuman) {
+    console.log(
+      `Actor type '${actorType}' is not explicitly bot; proceeding as human-compatible actor.`,
     );
   }
 
