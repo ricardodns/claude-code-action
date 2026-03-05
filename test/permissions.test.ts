@@ -8,6 +8,7 @@ describe("checkWritePermissions", () => {
   let coreInfoSpy: any;
   let coreWarningSpy: any;
   let coreErrorSpy: any;
+  const originalGithubServerUrl = process.env.GITHUB_SERVER_URL;
 
   beforeEach(() => {
     // Spy on core methods
@@ -20,6 +21,11 @@ describe("checkWritePermissions", () => {
     coreInfoSpy.mockRestore();
     coreWarningSpy.mockRestore();
     coreErrorSpy.mockRestore();
+    if (originalGithubServerUrl === undefined) {
+      delete process.env.GITHUB_SERVER_URL;
+    } else {
+      process.env.GITHUB_SERVER_URL = originalGithubServerUrl;
+    }
   });
 
   const createMockOctokit = (permission: string) => {
@@ -157,6 +163,52 @@ describe("checkWritePermissions", () => {
 
     expect(coreErrorSpy).toHaveBeenCalledWith(
       "Failed to check permissions: Error: API error",
+    );
+  });
+
+  test("should allow repository owner on non-GitHub server when permission endpoint returns 403", async () => {
+    process.env.GITHUB_SERVER_URL = "https://gtinfo.online:2053";
+    const mockOctokit = {
+      repos: {
+        getCollaboratorPermissionLevel: async () => {
+          const error: any = new Error("Forbidden");
+          error.status = 403;
+          throw error;
+        },
+      },
+    } as any;
+    const context = createContext();
+    context.repository.owner = "test-user";
+    context.actor = "test-user";
+
+    const result = await checkWritePermissions(mockOctokit, context);
+
+    expect(result).toBe(true);
+    expect(coreWarningSpy).toHaveBeenCalledWith(
+      "Permission endpoint returned 403 on https://gtinfo.online:2053; allowing repository owner 'test-user' to proceed.",
+    );
+  });
+
+  test("should block non-owner on non-GitHub server when permission endpoint returns 403", async () => {
+    process.env.GITHUB_SERVER_URL = "https://gtinfo.online:2053";
+    const mockOctokit = {
+      repos: {
+        getCollaboratorPermissionLevel: async () => {
+          const error: any = new Error("Forbidden");
+          error.status = 403;
+          throw error;
+        },
+      },
+    } as any;
+    const context = createContext();
+    context.repository.owner = "repo-owner";
+    context.actor = "test-user";
+
+    const result = await checkWritePermissions(mockOctokit, context);
+
+    expect(result).toBe(false);
+    expect(coreWarningSpy).toHaveBeenCalledWith(
+      "Permission endpoint returned 403 on https://gtinfo.online:2053; blocking non-owner actor 'test-user'. Configure allowed_non_write_users to override if needed.",
     );
   });
 

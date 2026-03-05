@@ -17,6 +17,11 @@ export async function checkWritePermissions(
   githubTokenProvided?: boolean,
 ): Promise<boolean> {
   const { repository, actor } = context;
+  const serverUrl =
+    process.env.GITHUB_SERVER_URL ||
+    process.env.GITEA_SERVER_URL ||
+    "https://github.com";
+  const isGitHubDotCom = serverUrl === "https://github.com";
 
   try {
     core.info(`Checking permissions for actor: ${actor}`);
@@ -49,12 +54,30 @@ export async function checkWritePermissions(
       return true;
     }
 
-    // Check permissions directly using the permission endpoint
-    const response = await octokit.repos.getCollaboratorPermissionLevel({
-      owner: repository.owner,
-      repo: repository.repo,
-      username: actor,
-    });
+    let response: { data: { permission: string } };
+    try {
+      // Check permissions directly using the permission endpoint
+      response = await octokit.repos.getCollaboratorPermissionLevel({
+        owner: repository.owner,
+        repo: repository.repo,
+        username: actor,
+      });
+    } catch (error: any) {
+      // Some Gitea setups return 403 for this endpoint even for valid users.
+      if (!isGitHubDotCom && error?.status === 403) {
+        if (actor === repository.owner) {
+          core.warning(
+            `Permission endpoint returned 403 on ${serverUrl}; allowing repository owner '${actor}' to proceed.`,
+          );
+          return true;
+        }
+        core.warning(
+          `Permission endpoint returned 403 on ${serverUrl}; blocking non-owner actor '${actor}'. Configure allowed_non_write_users to override if needed.`,
+        );
+        return false;
+      }
+      throw error;
+    }
 
     const permissionLevel = response.data.permission;
     core.info(`Permission level retrieved: ${permissionLevel}`);
