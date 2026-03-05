@@ -277,59 +277,103 @@ export async function fetchGitHubData({
 
   try {
     if (isPR) {
-      // Fetch PR data with all comments and file information
-      const prResult = await octokits.graphql<PullRequestQueryResponse>(
-        PR_QUERY,
-        {
+      try {
+        // Fetch PR data with all comments and file information
+        const prResult = await octokits.graphql<PullRequestQueryResponse>(
+          PR_QUERY,
+          {
+            owner,
+            repo,
+            number: parseInt(prNumber),
+          },
+        );
+
+        if (prResult.repository.pullRequest) {
+          const pullRequest = prResult.repository.pullRequest;
+          contextData = pullRequest;
+          changedFiles = pullRequest.files.nodes || [];
+          comments = filterCommentsByActor(
+            filterCommentsToTriggerTime(
+              pullRequest.comments?.nodes || [],
+              triggerTime,
+            ),
+            includeCommentsByActor,
+            excludeCommentsByActor,
+          );
+          reviewData = pullRequest.reviews || [];
+
+          console.log(`Successfully fetched PR #${prNumber} data`);
+        } else {
+          throw new Error(`PR #${prNumber} not found`);
+        }
+      } catch (error) {
+        if (!isGraphQlNotFoundError(error)) {
+          throw error;
+        }
+        console.warn(
+          `GraphQL unavailable for PR #${prNumber}, falling back to REST API`,
+        );
+        const restData = await fetchPullRequestDataViaRest({
+          octokits,
           owner,
           repo,
           number: parseInt(prNumber),
-        },
-      );
-
-      if (prResult.repository.pullRequest) {
-        const pullRequest = prResult.repository.pullRequest;
-        contextData = pullRequest;
-        changedFiles = pullRequest.files.nodes || [];
+        });
+        contextData = restData.contextData;
+        changedFiles = restData.changedFiles;
         comments = filterCommentsByActor(
-          filterCommentsToTriggerTime(
-            pullRequest.comments?.nodes || [],
-            triggerTime,
-          ),
+          filterCommentsToTriggerTime(restData.comments, triggerTime),
           includeCommentsByActor,
           excludeCommentsByActor,
         );
-        reviewData = pullRequest.reviews || [];
-
-        console.log(`Successfully fetched PR #${prNumber} data`);
-      } else {
-        throw new Error(`PR #${prNumber} not found`);
+        reviewData = restData.reviewData;
       }
     } else {
-      // Fetch issue data
-      const issueResult = await octokits.graphql<IssueQueryResponse>(
-        ISSUE_QUERY,
-        {
+      try {
+        // Fetch issue data
+        const issueResult = await octokits.graphql<IssueQueryResponse>(
+          ISSUE_QUERY,
+          {
+            owner,
+            repo,
+            number: parseInt(prNumber),
+          },
+        );
+
+        if (issueResult.repository.issue) {
+          contextData = issueResult.repository.issue;
+          comments = filterCommentsByActor(
+            filterCommentsToTriggerTime(
+              contextData?.comments?.nodes || [],
+              triggerTime,
+            ),
+            includeCommentsByActor,
+            excludeCommentsByActor,
+          );
+
+          console.log(`Successfully fetched issue #${prNumber} data`);
+        } else {
+          throw new Error(`Issue #${prNumber} not found`);
+        }
+      } catch (error) {
+        if (!isGraphQlNotFoundError(error)) {
+          throw error;
+        }
+        console.warn(
+          `GraphQL unavailable for issue #${prNumber}, falling back to REST API`,
+        );
+        const restData = await fetchIssueDataViaRest({
+          octokits,
           owner,
           repo,
           number: parseInt(prNumber),
-        },
-      );
-
-      if (issueResult.repository.issue) {
-        contextData = issueResult.repository.issue;
+        });
+        contextData = restData.contextData;
         comments = filterCommentsByActor(
-          filterCommentsToTriggerTime(
-            contextData?.comments?.nodes || [],
-            triggerTime,
-          ),
+          filterCommentsToTriggerTime(restData.comments, triggerTime),
           includeCommentsByActor,
           excludeCommentsByActor,
         );
-
-        console.log(`Successfully fetched issue #${prNumber} data`);
-      } else {
-        throw new Error(`Issue #${prNumber} not found`);
       }
     }
   } catch (error) {
@@ -499,6 +543,184 @@ export async function fetchGitHubData({
     reviewData,
     imageUrlMap,
     triggerDisplayName,
+  };
+}
+
+function isGraphQlNotFoundError(error: unknown): boolean {
+  const maybeError = error as { status?: number; request?: { url?: string } };
+  const url = maybeError.request?.url || "";
+  return maybeError.status === 404 && url.includes("/graphql");
+}
+
+function mapRestCommentToGraphqlShape(comment: {
+  id: number;
+  body?: string | null;
+  user?: { login?: string | null } | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}): GitHubComment {
+  return {
+    id: String(comment.id),
+    databaseId: String(comment.id),
+    body: comment.body || "",
+    author: { login: comment.user?.login || "unknown" },
+    createdAt: comment.created_at || new Date(0).toISOString(),
+    updatedAt: comment.updated_at || undefined,
+    lastEditedAt: comment.updated_at || undefined,
+    isMinimized: false,
+  };
+}
+
+async function fetchPullRequestDataViaRest({
+  octokits,
+  owner,
+  repo,
+  number,
+}: {
+  octokits: Octokits;
+  owner: string;
+  repo: string;
+  number: number;
+}): Promise<{
+  contextData: GitHubPullRequest;
+  comments: GitHubComment[];
+  changedFiles: GitHubFile[];
+  reviewData: { nodes: GitHubReview[] } | null;
+}> {
+  const [prResponse, filesResponse, commentsResponse, reviewsResponse] =
+    await Promise.all([
+      octokits.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: number,
+      }),
+      octokits.rest.pulls.listFiles({
+        owner,
+        repo,
+        pull_number: number,
+        per_page: 100,
+      }),
+      octokits.rest.issues.listComments({
+        owner,
+        repo,
+        issue_number: number,
+        per_page: 100,
+      }),
+      octokits.rest.pulls.listReviews({
+        owner,
+        repo,
+        pull_number: number,
+        per_page: 100,
+      }),
+    ]);
+
+  const pr = prResponse.data;
+  const changedFiles: GitHubFile[] = filesResponse.data.map((file) => ({
+    path: file.filename,
+    additions: file.additions,
+    deletions: file.deletions,
+    changeType: file.status.toUpperCase(),
+  }));
+
+  const comments = commentsResponse.data.map(mapRestCommentToGraphqlShape);
+
+  const reviewNodes: GitHubReview[] = reviewsResponse.data.map((review) => ({
+    id: String(review.id),
+    databaseId: String(review.id),
+    author: { login: review.user?.login || "unknown" },
+    body: review.body || "",
+    state: review.state || "COMMENTED",
+    submittedAt: review.submitted_at || new Date(0).toISOString(),
+    updatedAt: review.submitted_at || undefined,
+    lastEditedAt: review.submitted_at || undefined,
+    comments: { nodes: [] },
+  }));
+
+  const contextData: GitHubPullRequest = {
+    title: pr.title,
+    body: pr.body || "",
+    author: { login: pr.user?.login || "unknown" },
+    baseRefName: pr.base.ref,
+    headRefName: pr.head.ref,
+    headRefOid: pr.head.sha,
+    createdAt: pr.created_at,
+    updatedAt: pr.updated_at || undefined,
+    lastEditedAt: pr.updated_at || undefined,
+    additions: pr.additions,
+    deletions: pr.deletions,
+    state: pr.state.toUpperCase(),
+    labels: {
+      nodes: (pr.labels || []).map((label: string | { name?: string }) => ({
+        name: typeof label === "string" ? label : label.name || "",
+      })),
+    },
+    commits: {
+      totalCount: pr.commits,
+      nodes: [],
+    },
+    files: { nodes: changedFiles },
+    comments: { nodes: comments },
+    reviews: { nodes: reviewNodes },
+  };
+
+  return {
+    contextData,
+    comments,
+    changedFiles,
+    reviewData: { nodes: reviewNodes },
+  };
+}
+
+async function fetchIssueDataViaRest({
+  octokits,
+  owner,
+  repo,
+  number,
+}: {
+  octokits: Octokits;
+  owner: string;
+  repo: string;
+  number: number;
+}): Promise<{
+  contextData: GitHubIssue;
+  comments: GitHubComment[];
+}> {
+  const [issueResponse, commentsResponse] = await Promise.all([
+    octokits.rest.issues.get({
+      owner,
+      repo,
+      issue_number: number,
+    }),
+    octokits.rest.issues.listComments({
+      owner,
+      repo,
+      issue_number: number,
+      per_page: 100,
+    }),
+  ]);
+
+  const issue = issueResponse.data;
+  const comments = commentsResponse.data.map(mapRestCommentToGraphqlShape);
+
+  const contextData: GitHubIssue = {
+    title: issue.title,
+    body: issue.body || "",
+    author: { login: issue.user?.login || "unknown" },
+    createdAt: issue.created_at,
+    updatedAt: issue.updated_at || undefined,
+    lastEditedAt: issue.updated_at || undefined,
+    state: issue.state.toUpperCase(),
+    labels: {
+      nodes: (issue.labels || []).map((label: string | { name?: string }) => ({
+        name: typeof label === "string" ? label : label.name || "",
+      })),
+    },
+    comments: { nodes: comments },
+  };
+
+  return {
+    contextData,
+    comments,
   };
 }
 
