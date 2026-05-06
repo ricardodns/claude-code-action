@@ -86,6 +86,22 @@ describe("checkWritePermissions", () => {
     },
   });
 
+  test("should return true for owner permissions", async () => {
+    const mockOctokit = createMockOctokit("owner");
+    const context = createContext();
+
+    const result = await checkWritePermissions(mockOctokit, context);
+
+    expect(result).toBe(true);
+    expect(coreInfoSpy).toHaveBeenCalledWith(
+      "Checking permissions for actor: test-user",
+    );
+    expect(coreInfoSpy).toHaveBeenCalledWith(
+      "Permission level retrieved: owner",
+    );
+    expect(coreInfoSpy).toHaveBeenCalledWith("Actor has write access: owner");
+  });
+
   test("should return true for admin permissions", async () => {
     const mockOctokit = createMockOctokit("admin");
     const context = createContext();
